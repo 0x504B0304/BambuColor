@@ -999,7 +999,7 @@ private fun ConfigScreen(
 @Composable
 private fun AboutScreen(modifier: Modifier = Modifier) {
     val uriHandler = LocalUriHandler.current
-    val boostLink = "bambulab://bbl/design/model/detail?design_id=1930202&instance_id=2143105&appSharePlatform=copy"
+    val boostLink = "bambulab://bbl/design/model/detail?design_id=2019552&instance_id=2251734&appSharePlatform=copy"
     val linkColor = MaterialTheme.colorScheme.primary
     val boostText = buildAnnotatedString {
         append("助力：")
