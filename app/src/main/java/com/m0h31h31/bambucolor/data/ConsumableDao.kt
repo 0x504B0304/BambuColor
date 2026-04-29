@@ -9,6 +9,9 @@ interface ConsumableDao {
     @Query("SELECT * FROM consumable_config ORDER BY id DESC")
     fun observeAll(): Flow<List<ConsumableEntity>>
 
+    @Query("SELECT * FROM consumable_config")
+    suspend fun getAll(): List<ConsumableEntity>
+
     @Query("SELECT * FROM consumable_config WHERE id = :id LIMIT 1")
     suspend fun getById(id: Long): ConsumableEntity?
 

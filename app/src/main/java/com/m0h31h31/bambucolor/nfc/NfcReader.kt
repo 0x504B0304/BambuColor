@@ -2,11 +2,14 @@ package com.m0h31h31.bambucolor.nfc
 
 import android.app.Activity
 import android.nfc.NfcAdapter
+import android.nfc.tech.MifareClassic
 import android.util.Log
 
 class NfcReader(
     private val activity: Activity,
     private val onTagRead: (uidHex: String, rawHex: String) -> Unit,
+    private val onTagParsed: (data: TagDataParsed) -> Unit = {},
+    private val onNoMifareClassic: () -> Unit = {},
     private val onError: (message: String) -> Unit = {}
 ) {
     private val adapter: NfcAdapter? = NfcAdapter.getDefaultAdapter(activity)
@@ -36,6 +39,16 @@ class NfcReader(
                 val rawHex = tag.buildRawHex()
                 Log.d("NFC", "UID=$uidHex")
                 onTagRead(uidHex, rawHex)
+
+                if (MifareClassic.get(tag) == null) {
+                    onNoMifareClassic()
+                    return@enableReaderMode
+                }
+
+                val parsed = BambuTagDecoder.decode(tag)
+                if (parsed != null) {
+                    onTagParsed(parsed)
+                }
             } catch (t: Throwable) {
                 onError("读取标签失败：${t.message ?: t.javaClass.simpleName}")
             }

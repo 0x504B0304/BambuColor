@@ -40,6 +40,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.layout.ContentScale
 import com.m0h31h31.bambucolor.nfc.NfcReader
+import com.m0h31h31.bambucolor.nfc.TagDataParsed
 import com.m0h31h31.bambucolor.data.AppDatabase
 import com.m0h31h31.bambucolor.data.ConsumableDao
 import com.m0h31h31.bambucolor.data.ConsumableEntity
@@ -47,7 +48,10 @@ import com.m0h31h31.bambucolor.data.TagConfigDao
 import com.m0h31h31.bambucolor.data.TagWithConsumable
 import com.m0h31h31.bambucolor.ui.theme.BambuColorTheme
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.cancel
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.withContext
 import org.json.JSONObject
 import java.io.File
@@ -55,6 +59,8 @@ import java.io.File
 class MainActivity : ComponentActivity() {
 
     private lateinit var nfcReader: NfcReader
+
+    private val ioScope = CoroutineScope(Dispatchers.IO + SupervisorJob())
 
     // Compose 可观察状态：刷到 NFC 就更新它们
     private var lastUidState by mutableStateOf<String?>(null)
@@ -69,9 +75,16 @@ class MainActivity : ComponentActivity() {
             onTagRead = { uidHex, _ ->
                 runOnUiThread {
                     Log.d("NFC", "UID=$uidHex")
-                    // Toast.makeText(this, "UID=$uidHex", Toast.LENGTH_SHORT).show()
                     lastUidState = uidHex
                     currentDestinationState = AppDestinations.HOME
+                }
+            },
+            onTagParsed = { data ->
+                handleTagParsed(data)
+            },
+            onNoMifareClassic = {
+                runOnUiThread {
+                    Toast.makeText(this, "该设备不支持读取加密标签数据", Toast.LENGTH_SHORT).show()
                 }
             },
             onError = { msg ->
@@ -123,6 +136,64 @@ class MainActivity : ComponentActivity() {
     private fun getExternalJsonFile(): File {
         val dir = getExternalFilesDir(null) ?: filesDir
         return File(dir, "filaments_color_codes.json")
+    }
+
+    override fun onDestroy() {
+        ioScope.cancel()
+        super.onDestroy()
+    }
+
+    private fun handleTagParsed(data: TagDataParsed) {
+        val uid = data.uidHex
+        if (uid.isBlank()) return
+
+        val db = AppDatabase.get(this)
+        val type = data.detailedFilamentType.ifBlank { data.filamentType }
+
+        ioScope.launch {
+            try {
+                val consumableDao = db.consumableDao()
+                val tagConfigDao = db.tagConfigDao()
+
+                val all = consumableDao.getAll()
+                val colorCode = "${data.materialId}-${data.variantId}"
+                val colorValuesHex = if (data.colorArgbSecond != null) {
+                    "${formatColorHex(data.colorArgb)},${formatColorHex(data.colorArgbSecond)}"
+                } else {
+                    formatColorHex(data.colorArgb)
+                }
+
+                val existing = all.find {
+                    it.type.trim().equals(type.trim(), ignoreCase = true) &&
+                        it.colorValueArgb == data.colorArgb
+                }
+
+                if (existing != null) {
+                    tagConfigDao.upsertBinding(uid, existing.id)
+                } else {
+                    val newId = consumableDao.insert(
+                        ConsumableEntity(
+                            type = type,
+                            colorName = data.detailedFilamentType.ifBlank { data.filamentType },
+                            colorValueArgb = data.colorArgb,
+                            colorCode = colorCode,
+                            colorValuesHex = colorValuesHex
+                        )
+                    )
+                    tagConfigDao.upsertBinding(uid, newId)
+                }
+
+                runOnUiThread {
+                    lastUidState = uid
+                    currentDestinationState = AppDestinations.HOME
+                    Toast.makeText(this@MainActivity, "已自动识别并绑定：$type", Toast.LENGTH_SHORT).show()
+                }
+            } catch (e: Exception) {
+                runOnUiThread {
+                    Toast.makeText(this@MainActivity, "标签解析失败：${e.message}", Toast.LENGTH_SHORT).show()
+                }
+            }
+        }
     }
 }
 
